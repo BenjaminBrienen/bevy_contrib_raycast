@@ -4,6 +4,7 @@ use bevy::math::{primitives::Cuboid, Dir3, Ray3d};
 
 impl RayCast3d for Cuboid {
     fn cast_ray_local(&self, ray: Ray3d, max_distance: f32) -> Option<RayIntersection3d> {
+        // TODO: make this work for non-axis-aligned cuboids (transformation matrix?)
         let inv_dir = 1.0 / ray.direction.as_vec3();
         let min_bounds = -self.half_size;
         let max_bounds = self.half_size;
@@ -31,6 +32,7 @@ impl RayCast3d for Cuboid {
         let intersection = ray.origin + t * ray.direction;
 
         // Determine the normal at the intersection point based on which axis was hit
+        // TODO: this is the suspicious code where the tests fail
         let normal = if t == t1 || t == t2 {
             t1.signum() * Dir3::X
         } else if t == t3 || t == t4 {
@@ -51,78 +53,96 @@ impl RayCast3d for Cuboid {
 mod tests {
     use super::*;
     use bevy::math::Vec3;
+    use test_case::test_case;
 
-    fn create_cuboid() -> Cuboid {
-        // Create a simple cuboid centered at the origin, with size 2x2x2
-        Cuboid::new(2.0, 2.0, 2.0)
+    enum Test
+    {
+        Hit,
+        Misfire(Dir3),
     }
 
-    #[test]
-    fn test_ray_misses_to_the_left() {
-        let cuboid = create_cuboid();
-        let ray = Ray3d {
-            origin: Vec3::new(-3., 0., 5.), // Start in front of and to the left of the cuboid
-            direction: Dir3::Z, // Moving forward
+    fn do_test(aim_axis: Dir3, test: Test) -> Option<RayIntersection3d> {
+        // Values chosen so that when the misfire and standoff are on the same axis the ray will miss from either side
+        const CUBOID_X_SIZE: f32 = 2.0; // TODO: test different proportioned cuboids
+        const CUBOID_Y_SIZE: f32 = 2.0; // TODO: test different proportioned cuboids
+        const CUBOID_Z_SIZE: f32 = 2.0; // TODO: test different proportioned cuboids
+        const MISFIRE_MAGNITUDE: f32 = 10. + CUBOID_X_SIZE;
+        const STANDOFF_MAGNITUDE: f32 = 10.;
+        const MAX_DISTANCE: f32 = STANDOFF_MAGNITUDE;
+        let cuboid = Cuboid::new(CUBOID_X_SIZE, CUBOID_Y_SIZE, CUBOID_Z_SIZE);
+        let misfire_offset = if let Test::Misfire(axis) = test
+        {
+            MISFIRE_MAGNITUDE * axis
+        } else{
+            Vec3::ZERO
         };
-        let result = cuboid.cast_ray_local(ray, 10.0);
-        assert!(result.is_none(), "Ray should miss the cuboid to the left");
+        // stand back from the origin (looking towards the origin)
+        let stand_off = -STANDOFF_MAGNITUDE * aim_axis;
+        let ray = Ray3d {
+            origin: stand_off + misfire_offset,
+            direction: aim_axis,
+        };
+
+        cuboid.cast_ray_local(ray, MAX_DISTANCE)
     }
 
-    #[test]
-    fn test_ray_misses_to_the_right() {
-        let cuboid = create_cuboid();
-        let ray = Ray3d {
-            origin: Vec3::new(3., 0., 5.), // Start in front of and to the right of the cuboid
-            direction: Dir3::Z, // Moving forward
-        };
-        let result = cuboid.cast_ray_local(ray, 10.0);
-        assert!(result.is_none(), "Ray should miss the cuboid to the right");
+    #[test_case(Dir3::X, Dir3::X ; "when X ray is too far X")]
+    #[test_case(Dir3::X, Dir3::Y ; "when X ray is too far Y")]
+    #[test_case(Dir3::X, Dir3::Z ; "when X ray is too far Z")]
+    #[test_case(Dir3::X, Dir3::NEG_X ; "when X ray is too far NegX")]
+    #[test_case(Dir3::X, Dir3::NEG_Y ; "when X ray is too far NegY")]
+    #[test_case(Dir3::X, Dir3::NEG_Z ; "when X ray is too far NegZ")]
+
+    #[test_case(Dir3::Y, Dir3::X ; "when Y ray is too far X")]
+    #[test_case(Dir3::Y, Dir3::Y ; "when Y ray is too far Y")]
+    #[test_case(Dir3::Y, Dir3::Z ; "when Y ray is too far Z")]
+    #[test_case(Dir3::Y, Dir3::NEG_X ; "when Y ray is too far NegX")]
+    #[test_case(Dir3::Y, Dir3::NEG_Y ; "when Y ray is too far NegY")]
+    #[test_case(Dir3::Y, Dir3::NEG_Z ; "when Y ray is too far NegZ")]
+
+    #[test_case(Dir3::Z, Dir3::X ; "when Z ray is too far X")]
+    #[test_case(Dir3::Z, Dir3::Y ; "when Z ray is too far Y")]
+    #[test_case(Dir3::Z, Dir3::Z ; "when Z ray is too far Z")]
+    #[test_case(Dir3::Z, Dir3::NEG_X ; "when Z ray is too far NegX")]
+    #[test_case(Dir3::Z, Dir3::NEG_Y ; "when Z ray is too far NegY")]
+    #[test_case(Dir3::Z, Dir3::NEG_Z ; "when Z ray is too far NegZ")]
+
+    #[test_case(Dir3::NEG_X, Dir3::X ; "when NegX ray is too far X")]
+    #[test_case(Dir3::NEG_X, Dir3::Y ; "when NegX ray is too far Y")]
+    #[test_case(Dir3::NEG_X, Dir3::Z ; "when NegX ray is too far Z")]
+    #[test_case(Dir3::NEG_X, Dir3::NEG_X ; "when NegX ray is too far NegX")]
+    #[test_case(Dir3::NEG_X, Dir3::NEG_Y ; "when NegX ray is too far NegY")]
+    #[test_case(Dir3::NEG_X, Dir3::NEG_Z ; "when NegX ray is too far NegZ")]
+
+    #[test_case(Dir3::NEG_Y, Dir3::X ; "when NegY ray is too far X")]
+    #[test_case(Dir3::NEG_Y, Dir3::Y ; "when NegY ray is too far Y")]
+    #[test_case(Dir3::NEG_Y, Dir3::Z ; "when NegY ray is too far Z")]
+    #[test_case(Dir3::NEG_Y, Dir3::NEG_X ; "when NegY ray is too far NegX")]
+    #[test_case(Dir3::NEG_Y, Dir3::NEG_Y ; "when NegY ray is too far NegY")]
+    #[test_case(Dir3::NEG_Y, Dir3::NEG_Z ; "when NegY ray is too far NegZ")]
+
+    #[test_case(Dir3::NEG_Z, Dir3::X ; "when NegZ ray is too far X")]
+    #[test_case(Dir3::NEG_Z, Dir3::Y ; "when NegZ ray is too far Y")]
+    #[test_case(Dir3::NEG_Z, Dir3::Z ; "when NegZ ray is too far Z")]
+    #[test_case(Dir3::NEG_Z, Dir3::NEG_X ; "when NegZ ray is too far NegX")]
+    #[test_case(Dir3::NEG_Z, Dir3::NEG_Y ; "when NegZ ray is too far NegY")]
+    #[test_case(Dir3::NEG_Z, Dir3::NEG_Z ; "when NegZ ray is too far NegZ")]
+    fn misses(aim_axis: Dir3, miss_side: Dir3) {
+        let result = do_test(aim_axis, Test::Misfire(miss_side));
+        assert!(result.is_none(), "Ray should miss the cuboid");
     }
 
-    #[test]
-    fn test_ray_misses_above() {
-        let cuboid = create_cuboid();
-        let ray = Ray3d {
-            origin: Vec3::new(0., 3., 5.), // Start in front of and above the cuboid
-            direction: Dir3::Z, // Moving forward
-        };
-        let result = cuboid.cast_ray_local(ray, 10.0);
-        assert!(result.is_none(), "Ray should miss the cuboid above");
-    }
-
-    #[test]
-    fn test_ray_misses_below() {
-        let cuboid = create_cuboid();
-        let ray = Ray3d {
-            origin: Vec3::new(0., -3., 5.), // Start in front of and below the cuboid
-            direction: Dir3::NEG_Y, // Moving downwards
-        };
-        let result = cuboid.cast_ray_local(ray, 10.0);
-        assert!(result.is_none(), "Ray should miss the cuboid below");
-    }
-
-    #[test]
-    fn test_ray_misses_too_short_distance() {
-        let cuboid = create_cuboid();
-        let ray = Ray3d {
-            origin: Vec3::new(0., 0., 5.), // Start directly in front of the cuboid
-            direction: Dir3::NEG_Z, // Moving towards the cuboid
-        };
-        let result = cuboid.cast_ray_local(ray, 1.0); // Max distance is too short to reach the cuboid
-        assert!(result.is_none(), "Ray should miss the cuboid due to short max distance");
-    }
-
-    #[test]
-    fn test_ray_hits_cuboid() {
-        let cuboid = create_cuboid();
-        let ray = Ray3d {
-            origin: Vec3::new(0., 0., 5.), // Start directly in front of the cuboid
-            direction: Dir3::NEG_Z, // Moving towards the cuboid
-        };
-        let result = cuboid.cast_ray_local(ray, 10.0);
+    #[test_case(Dir3::X ; "when X ray is just right")]
+    #[test_case(Dir3::Y ; "when Y ray is just right")]
+    #[test_case(Dir3::Z ; "when Z ray is just right")]
+    #[test_case(Dir3::NEG_X ; "when NegX ray is just right")] // TODO: fix
+    #[test_case(Dir3::NEG_Y ; "when NegY ray is just right")] // TODO: fix
+    #[test_case(Dir3::NEG_Z ; "when NegZ ray is just right")] // TODO: fix
+    fn hits(aim_axis: Dir3) {
+        let result = do_test(aim_axis, Test::Hit);
         assert!(result.is_some(), "Ray should hit the cuboid");
         let intersection = result.unwrap();
         assert!(intersection.distance > 0.0, "Intersection distance should be positive");
-        assert_eq!(intersection.normal, Dir3::Z, "Normal should point along the Z-axis (back where the ray came from)");
+        assert_eq!(intersection.normal, aim_axis, "Normal should point back where the ray came from");
     }
 }

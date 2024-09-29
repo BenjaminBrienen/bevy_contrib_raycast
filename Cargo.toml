@@ -15,6 +15,7 @@ bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", default-fe
 
 [dev-dependencies]
 bevy = { git = "https://github.com/bevyengine/bevy", branch = "main" }
+test-case = "3.3.1"
 
 # Fix for gizmos
 [patch.'https://github.com/bevyengine/bevy']
